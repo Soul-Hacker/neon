@@ -134,12 +134,16 @@ const U=document.getElementById('ui'),rd=v=>Math.round(v*10)/10,cn=s=>String(s==
 function mk(t,a){const e=document.createElement(t);Object.assign(e,a||{});return e}
 function show(...k){U.replaceChildren(...k);U.style.display='flex'}
 function plist(a){const d=mk('div');for(const p of a){const r=mk('div',{textContent:'● '+p.name});r.style.color=p.col;d.append(r)}return d}
+function playerName(name,except){const b=cn(name)||'PILOT';let n=b,k=2;while(mp.pl.some(p=>p!==except&&p.name===n))n=b.slice(0,10)+k++;return n}
+function renameMe(){if(!mp)return;const value=prompt('Rename your pilot (up to 12 characters):',myName);if(value===null)return;const n=cn(value)||'PILOT';
+if(mp.host){const p=mp.pl.find(p=>p.id===mp.id);if(!p)return;p.name=playerName(n,p);myName=p.name;try{localStorage.setItem('neonswarm.name',myName)}catch(e){}lobby()}
+else if(mp.dc&&mp.dc.readyState==='open'){myName=n;try{localStorage.setItem('neonswarm.name',myName)}catch(e){}mp.dc.send(JSON.stringify({k:'rename',n:n}))}}
 async function enc(o){let b=new TextEncoder().encode(JSON.stringify(o)),p='p';if(window.CompressionStream){b=new Uint8Array(await new Response(new Blob([b]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer());p='z'}let s='';for(const x of b)s+=String.fromCharCode(x);return p+btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
 async function dec(c){c=c.replace(/\s+/g,'');const p=c[0];let b=Uint8Array.from(atob(c.slice(1).replace(/-/g,'+').replace(/_/g,'/')),x=>x.charCodeAt(0));if(p==='z')b=new Uint8Array(await new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());else if(p!=='p')throw 0;const d=JSON.parse(new TextDecoder().decode(b));if(!d||typeof d.s!=='string'||(d.t!=='o'&&d.t!=='a'))throw 0;return d}
 function gathered(pc){return new Promise(r=>{if(pc.iceGatheringState==='complete')return r();const f=()=>{if(pc.iceGatheringState==='complete'){pc.removeEventListener('icegatheringstatechange',f);r()}};pc.addEventListener('icegatheringstatechange',f);setTimeout(r,3000)})}
 const BAD='That code is invalid or incomplete. Copy the whole code.';
 function copyBtn(ta){return mk('button',{textContent:'Copy',onclick:()=>{ta.select();try{navigator.clipboard.writeText(ta.value)}catch(e){document.execCommand('copy')}}})}
-function mkP(id,name){const used=mp.pl.map(p=>p.col),col=COLS.find(c=>!used.includes(c))||COLS[0],b=cn(name)||'PILOT';let n=b,k=2;while(mp.pl.some(p=>p.name===n))n=b.slice(0,10)+k++;
+function mkP(id,name){const used=mp.pl.map(p=>p.col),col=COLS.find(c=>!used.includes(c))||COLS[0],n=playerName(name);
 const p={id:id,name:n,col:col,x:800,y:450,tx:800,ty:450,a:0,vx:0,vy:0,hull:3,kills:0,deaths:0,al:false,inv:0,dash:0,cd:0,fire:0,rt:0,dx:1,dy:0,dn:0,inp:{ix:0,iy:0,a:0,f:false,dreq:false}};mp.pl.push(p);return p}
 function leave(msg){if(!mp)return;relayStop();const m=mp;mp=null;try{m.dc&&m.dc.close()}catch(e){}try{m.pc&&m.pc.close()}catch(e){}for(const pe of m.peers||[])try{pe.pc.close()}catch(e){}U.style.display='none';toMenu(msg)}
 function lost(){if(mp&&!mp.host&&mp.id!=null)leave('Connection to the host was lost.')}
@@ -157,7 +161,7 @@ for(const ln of tx.split('\n')){if(!ln.trim())continue;let e;try{e=JSON.parse(ln
 function hostRoom(){st='room';M.style.display='none';const list=mk('div'),req=mk('div'),note=mk('div'),start=mk('button',{textContent:'Start match',onclick:hostStart}),cd=mk('div',{textContent:mp.code.slice(0,3)+' '+mp.code.slice(3)});
 cd.style.cssText='font-size:56px;letter-spacing:.15em;color:#ffd23d;text-shadow:0 0 14px #ffd23d';mp.req=req;mp.note=note;
 mp.refresh=()=>{list.replaceChildren(plist(mp.pl));start.disabled=mp.pl.length<2};
-show(mk('h2',{textContent:'ROOM (HOST)'}),mk('div',{textContent:'Room code: give it to your friends'}),cd,mk('button',{textContent:'Copy code',onclick:()=>{try{navigator.clipboard.writeText(mp.code)}catch(e){}}}),list,req,note,mk('div',{textContent:'Keep this tab open and visible: your browser runs the match.'}),start,mk('button',{textContent:'Close room',onclick:()=>leave()}));mp.refresh();
+show(mk('h2',{textContent:'ROOM (HOST)'}),mk('div',{textContent:'Room code: give it to your friends'}),cd,mk('button',{textContent:'Copy code',onclick:()=>{try{navigator.clipboard.writeText(mp.code)}catch(e){}}}),mk('button',{textContent:'Rename pilot',onclick:renameMe}),list,req,note,mk('div',{textContent:'Keep this tab open and visible: your browser runs the match.'}),start,mk('button',{textContent:'Close room',onclick:()=>leave()}));mp.refresh();
 relayStart('neonswarm'+mp.code,hostRelayMsg,()=>{note.textContent='Cannot reach the relay service (ntfy.sh). Check your connection.'})}
 function hostRelayMsg(d){const id=String(d.id||'').slice(0,16),T='neonswarm'+mp.code;if(!id)return;
 if(d.t==='join'){if(mp.pend[id]||mp.ph!==0||Object.keys(mp.pend).length>=24)return;const n=cn(d.n)||'PILOT',row=mk('div'),pe={id:id};mp.pend[id]=pe;
@@ -173,6 +177,7 @@ function lobby(){send({k:'lobby',p:mp.pl.map(p=>[p.id,p.name,p.col])});if(mp.ref
 function drop(pe){if(!mp||!mp.peers)return;const i=mp.peers.indexOf(pe);if(i<0)return;mp.peers.splice(i,1);try{pe.pc.close()}catch(e){}if(pe.p){mp.pl=mp.pl.filter(p=>p!==pe.p);lobby()}}
 function hostMsg(pe,e){let d;try{d=JSON.parse(e.data)}catch(x){return}if(!d||typeof d!=='object'||!mp)return;
 if(d.k==='name'&&!pe.p){if(mp.ph!==0||mp.pl.length>=8){pe.dc.close();return}pe.p=mkP(++mp.nid,d.n);pe.dc.send(JSON.stringify({k:'hello',id:pe.p.id}));lobby()}
+else if(d.k==='rename'&&pe.p){pe.p.name=playerName(d.n,pe.p);lobby()}
 else if(d.k==='in'&&pe.p){const i=pe.p.inp,n=d.dn|0;i.ix=cl(+d.ix||0,-1,1);i.iy=cl(+d.iy||0,-1,1);i.a=isFinite(d.a)?+d.a:0;i.f=d.f===true;if(n>pe.p.dn&&n<pe.p.dn+100){pe.p.dn=n;i.dreq=true}}}
 function spot(){let best={x:800,y:450},bd=-1;for(let i=0;i<14;i++){const x=60+R()*(AW-120),y=60+R()*(AH-120);let d=1e9;for(const q of mp.pl)if(q.al)d=Math.min(d,Math.hypot(q.x-x,q.y-y));if(d>bd){bd=d;best={x:x,y:y}}}return best}
 function respawn(p,quiet){const s=spot();Object.assign(p,{x:s.x,y:s.y,tx:s.x,ty:s.y,vx:0,vy:0,hull:3,al:true,inv:1.5,dash:0});if(!quiet)ev(['r',rd(s.x),rd(s.y)])}
@@ -217,10 +222,10 @@ relayStart(T,async d=>{if(d.to!==gid)return;if(d.t==='deny'){fin('The host decli
 relayPub(T,{t:'join',id:gid,n:myName}).catch(()=>fin('Cannot reach the relay service (ntfy.sh). Check your connection.'));
 setTimeout(()=>{if(mp&&!got&&mp.id==null&&rl&&go.disabled)fin('No answer from the host. Check the code and that the room is open.')},30000)};
 show(mk('h2',{textContent:'JOIN A ROOM'}),inp,go,note,mk('button',{textContent:'Back',onclick:()=>leave()}))}
-function joinView(){st='room';M.style.display='none';show(mk('h2',{textContent:'ROOM'}),plist(mp.lob),mk('div',{textContent:'Connected. Waiting for the host to start…'}),mk('button',{textContent:'Leave',onclick:()=>leave()}))}
+function joinView(){st='room';M.style.display='none';show(mk('h2',{textContent:'ROOM'}),plist(mp.lob),mk('div',{textContent:'Connected. Waiting for the host to start…'}),mk('button',{textContent:'Rename pilot',onclick:renameMe}),mk('button',{textContent:'Leave',onclick:()=>leave()}))}
 function cliMsg(e){let d;try{d=JSON.parse(e.data)}catch(x){return}if(!d||!mp||mp.host)return;
 if(d.k==='hello'){mp.id=d.id|0;relayStop()}
-else if(d.k==='lobby'&&Array.isArray(d.p)){mp.lob=d.p.filter(Array.isArray).map(a=>({id:a[0],name:cn(a[1]),col:COLS.includes(a[2])?a[2]:COLS[0]}));mp.bl=[];mp.ph=0;joinView()}
+else if(d.k==='lobby'&&Array.isArray(d.p)){mp.lob=d.p.filter(Array.isArray).map(a=>({id:a[0],name:cn(a[1]),col:COLS.includes(a[2])?a[2]:COLS[0]}));for(const p of mp.pl){const q=mp.lob.find(q=>q.id===p.id);if(q)p.name=q.name}const me=mp.lob.find(p=>p.id===mp.id);if(me){myName=me.name;try{localStorage.setItem('neonswarm.name',myName)}catch(e){}}if(st==='room'){mp.bl=[];mp.ph=0;joinView()}}
 else if(d.k==='start'){mp.pl=[];enter()}
 else if(d.k==='s'&&Array.isArray(d.p)&&d.ph>0){const m=mp,ids=new Set();
  for(const a of d.p){const inf=m.lob.find(q=>q.id===a[0]);let p=m.pl.find(q=>q.id===a[0]);if(!p){p={id:a[0],name:inf?inf.name:'?',col:inf?inf.col:COLS[0],x:a[1],y:a[2],tx:a[1],ty:a[2],al:false};m.pl.push(p)}
@@ -252,6 +257,7 @@ for(const p of PT){X.globalAlpha=p.l/p.ml;X.shadowColor=p.c;X.shadowBlur=8;X.fil
 X.restore();
 const srt=[...m.pl].sort((a,b)=>b.kills-a.kills||a.deaths-b.deaths);
 srt.forEach((p,i)=>txt(p.kills+'  '+p.name,20,28+i*18,14,p.id===m.id?'#fff':p.col));
+txt('N: RENAME',20,H-20,12,'#8899aa');
 const t=Math.max(0,Math.ceil(m.ph===1?120:m.tl));txt((t/60|0)+':'+String(t%60).padStart(2,'0'),W/2,28,26,m.ph===2&&m.tl<=10?'#ff3d3d':'#cfeaff','center');
 if(me){for(let i=0;i<3;i++){X.shadowBlur=0;X.fillStyle=i<me.hull?'#ff5a8a':'rgba(255,90,138,.12)';X.fillRect(W-30-i*20,18,14,14)}X.strokeStyle='#3dd6ff';X.strokeRect(W-120.5,42.5,100,6);X.fillStyle='#3dd6ff';X.fillRect(W-120,43,100*(1-m.cdL/1.1),6);
  if(!me.al&&m.ph===2)txt('RESPAWNING...',W/2,H/2,32,'#ff5a8a','center')}
@@ -261,7 +267,7 @@ if(m.ph===3&&srt.length){txt(srt.length>1&&srt[0].kills===srt[1].kills?'DRAW':sr
  srt.forEach((p,i)=>txt(p.name.padEnd(13)+'K '+p.kills+'  D '+p.deaths,W/2,H*.25+60+i*24,17,p.col,'center'));
  txt(m.host?'PRESS ENTER FOR A REMATCH':'WAITING FOR THE HOST...',W/2,H*.25+80+srt.length*24,18,'#3dd6ff','center');txt('ESC TO LEAVE',W/2,H*.25+108+srt.length*24,13,'#8899aa','center')}
 X.shadowColor='#3dd6ff';X.shadowBlur=8;X.strokeStyle='#3dd6ff';X.lineWidth=1.5;X.beginPath();X.arc(mx,my,9,0,TAU);for(const[a,b]of[[1,0],[-1,0],[0,1],[0,-1]]){X.moveTo(mx+a*5,my+b*5);X.lineTo(mx+a*15,my+b*15)}X.stroke();X.shadowBlur=0}
-addEventListener('keydown',e=>{if(typing(e.target)||!mp)return;if(e.code==='Escape'&&st==='mp')leave();else if(e.code==='Enter'&&st==='mp'&&mp.host&&mp.ph===3){mp.ph=0;mp.bl=[];lobby();hostRoom()}});
+addEventListener('keydown',e=>{if(typing(e.target)||!mp)return;if(e.code==='KeyN'&&st==='mp')renameMe();else if(e.code==='Escape'&&st==='mp')leave();else if(e.code==='Enter'&&st==='mp'&&mp.host&&mp.ph===3){mp.ph=0;mp.bl=[];lobby();hostRoom()}});
 /* ---------- pause / input ---------- */
 function pause(){st='pause';C.style.cursor='default';X.shadowBlur=0;X.fillStyle='rgba(5,6,15,.6)';X.fillRect(0,0,W,H);txt('PAUSED',W/2,H/2,56,'#3dd6ff','center');txt('P / ESC TO RESUME',W/2,H/2+50,16,'#cfeaff','center')}
 function resume(){st='play';C.style.cursor='none';dashReq=false}
