@@ -141,25 +141,33 @@ const BAD='That code is invalid or incomplete. Copy the whole code.';
 function copyBtn(ta){return mk('button',{textContent:'Copy',onclick:()=>{ta.select();try{navigator.clipboard.writeText(ta.value)}catch(e){document.execCommand('copy')}}})}
 function mkP(id,name){const used=mp.pl.map(p=>p.col),col=COLS.find(c=>!used.includes(c))||COLS[0],b=cn(name)||'PILOT';let n=b,k=2;while(mp.pl.some(p=>p.name===n))n=b.slice(0,10)+k++;
 const p={id:id,name:n,col:col,x:800,y:450,tx:800,ty:450,a:0,vx:0,vy:0,hull:3,kills:0,deaths:0,al:false,inv:0,dash:0,cd:0,fire:0,rt:0,dx:1,dy:0,dn:0,inp:{ix:0,iy:0,a:0,f:false,dreq:false}};mp.pl.push(p);return p}
-function leave(msg){if(!mp)return;const m=mp;mp=null;try{m.dc&&m.dc.close()}catch(e){}try{m.pc&&m.pc.close()}catch(e){}for(const pe of m.peers||[])try{pe.pc.close()}catch(e){}U.style.display='none';toMenu(msg)}
+function leave(msg){if(!mp)return;relayStop();const m=mp;mp=null;try{m.dc&&m.dc.close()}catch(e){}try{m.pc&&m.pc.close()}catch(e){}for(const pe of m.peers||[])try{pe.pc.close()}catch(e){}U.style.display='none';toMenu(msg)}
 function lost(){if(mp&&!mp.host&&mp.id!=null)leave('Connection to the host was lost.')}
 function mpMenu(){st='room';M.style.display='none';const n=mk('input',{maxLength:12,value:myName,placeholder:'Your name'}),go=f=>{myName=cn(n.value)||'PILOT';try{localStorage.setItem('neonswarm.name',myName)}catch(e){}f()};
 show(mk('h2',{textContent:'MULTIPLAYER'}),n,mk('button',{textContent:'Host a room',onclick:()=>go(hostNew)}),mk('button',{textContent:'Join a room',onclick:()=>go(joinNew)}),mk('button',{textContent:'Back',onclick:()=>{U.style.display='none';toMenu()}}))}
 document.getElementById('mp').addEventListener('click',mpMenu);
 /* host side */
-function hostNew(){mp={host:true,id:0,pl:[],peers:[],nid:0,ph:0,tl:0,bl:[],ev:[],msgs:[],cdL:0,dn:0,sacc:0};mkP(0,myName);hostRoom()}
-function hostRoom(){st='room';M.style.display='none';const list=mk('div'),box=mk('div'),start=mk('button',{textContent:'Start match',onclick:hostStart});
+function hostNew(){mp={host:true,id:0,pl:[],peers:[],nid:0,ph:0,tl:0,bl:[],ev:[],msgs:[],cdL:0,dn:0,sacc:0,pend:{},code:String(100000+crypto.getRandomValues(new Uint32Array(1))[0]%900000)};mkP(0,myName);hostRoom()}
+const RELAY='https://ntfy.sh/';let rl=null;
+function relayStop(){if(rl){clearInterval(rl.t);rl=null}}
+function relayPub(topic,o){return fetch(RELAY+topic,{method:'POST',body:JSON.stringify(o)})}
+function relayStart(topic,onmsg,onerr){relayStop();const r=rl={since:'all',busy:false,fails:0,seen:new Set()};
+r.t=setInterval(async()=>{if(r.busy||rl!==r)return;r.busy=true;try{const res=await fetch(RELAY+topic+'/json?poll=1&since='+r.since);if(!res.ok)throw 0;const tx=await res.text();r.fails=0;
+for(const ln of tx.split('\n')){if(!ln.trim())continue;let e;try{e=JSON.parse(ln)}catch(x){continue}if(e.event!=='message'||r.seen.has(e.id))continue;r.seen.add(e.id);r.since=e.id;let d;try{d=JSON.parse(e.message)}catch(x){continue}if(d&&typeof d==='object'&&rl===r)onmsg(d)}}catch(x){if(++r.fails===3&&rl===r&&onerr)onerr()}r.busy=false},1500)}
+function hostRoom(){st='room';M.style.display='none';const list=mk('div'),req=mk('div'),note=mk('div'),start=mk('button',{textContent:'Start match',onclick:hostStart}),cd=mk('div',{textContent:mp.code.slice(0,3)+' '+mp.code.slice(3)});
+cd.style.cssText='font-size:56px;letter-spacing:.15em;color:#ffd23d;text-shadow:0 0 14px #ffd23d';mp.req=req;mp.note=note;
 mp.refresh=()=>{list.replaceChildren(plist(mp.pl));start.disabled=mp.pl.length<2};
-show(mk('h2',{textContent:'ROOM (HOST)'}),list,mk('div',{textContent:'Keep this tab open and visible: your browser runs the match.'}),mk('button',{textContent:'Invite a player',onclick:()=>invite(box)}),box,start,mk('button',{textContent:'Close room',onclick:()=>leave()}));mp.refresh()}
-async function invite(box){if(!mp)return;const pc=new RTCPeerConnection(ICE),dc=pc.createDataChannel('g'),pe={pc:pc,dc:dc,p:null},m=mk('div'),note=mk('div'),
-code=mk('textarea',{readOnly:true,rows:4,placeholder:'Creating invite…'}),rep=mk('textarea',{rows:4,placeholder:"Paste the player's reply code here"}),bn=mk('button',{textContent:'Connect'});
-bn.onclick=async()=>{const v=rep.value.trim();if(!v){note.textContent='Paste the reply code first.';return}let d;try{d=await dec(v)}catch(e){note.textContent=BAD;return}
-if(d.t==='o'){note.textContent="That is an invite code. Paste the player's reply code here.";return}
-try{await pc.setRemoteDescription({type:'answer',sdp:d.s})}catch(e){note.textContent='That reply code does not match this invite.';return}
-bn.disabled=true;note.textContent='Connecting…';setTimeout(()=>{if(!pe.p&&mp&&mp.peers.includes(pe)){note.textContent='The connection has not come up after 15 seconds. Check the code or send a new invite.';drop(pe)}},15000)};
-m.append(code,copyBtn(code),rep,bn,note);box.prepend(m);mp.peers.push(pe);
+show(mk('h2',{textContent:'ROOM (HOST)'}),mk('div',{textContent:'Room code: give it to your friends'}),cd,mk('button',{textContent:'Copy code',onclick:()=>{try{navigator.clipboard.writeText(mp.code)}catch(e){}}}),list,req,note,mk('div',{textContent:'Keep this tab open and visible: your browser runs the match.'}),start,mk('button',{textContent:'Close room',onclick:()=>leave()}));mp.refresh();
+relayStart('neonswarm'+mp.code,hostRelayMsg,()=>{note.textContent='Cannot reach the relay service (ntfy.sh). Check your connection.'})}
+function hostRelayMsg(d){const id=String(d.id||'').slice(0,16),T='neonswarm'+mp.code;if(!id)return;
+if(d.t==='join'){if(mp.pend[id]||mp.ph!==0||Object.keys(mp.pend).length>=24)return;const n=cn(d.n)||'PILOT',row=mk('div'),pe={id:id};mp.pend[id]=pe;
+row.append(mk('span',{textContent:n+' wants to join '}),mk('button',{textContent:'Accept',onclick:()=>{row.remove();offerTo(pe,n)}}),mk('button',{textContent:'Reject',onclick:()=>{row.remove();relayPub(T,{t:'deny',to:id})}}));mp.req.append(row)}
+else if(d.t==='answer'){const pe=mp.pend[id];if(pe&&pe.pc&&!pe.done){pe.done=true;dec(d.c).then(x=>{if(x.t!=='a')throw 0;return pe.pc.setRemoteDescription({type:'answer',sdp:x.s})}).then(()=>setTimeout(()=>{if(mp&&!pe.p&&mp.peers.includes(pe)){mp.note.textContent='The connection has not come up after 15 seconds.';drop(pe)}},15000)).catch(()=>{mp&&(mp.note.textContent='A reply from a player was invalid.');drop(pe)})}}}
+async function offerTo(pe,n){const T='neonswarm'+mp.code;if(mp.pl.length+mp.peers.length>=8){relayPub(T,{t:'deny',to:pe.id});return}
+const pc=new RTCPeerConnection(ICE),dc=pc.createDataChannel('g');pe.pc=pc;pe.dc=dc;pe.p=null;mp.peers.push(pe);
 dc.onmessage=e=>hostMsg(pe,e);dc.onclose=()=>drop(pe);pc.onconnectionstatechange=()=>{if(['failed','closed','disconnected'].includes(pc.connectionState))drop(pe)};
-try{await pc.setLocalDescription(await pc.createOffer());await gathered(pc);code.value=await enc({t:'o',s:pc.localDescription.sdp})}catch(e){note.textContent='Could not create an invite code.'}}
+try{await pc.setLocalDescription(await pc.createOffer());await gathered(pc);await relayPub(T,{t:'offer',to:pe.id,c:await enc({t:'o',s:pc.localDescription.sdp})});mp.note.textContent='Connecting '+n+'…';
+setTimeout(()=>{if(mp&&!pe.done&&mp.peers.includes(pe)){mp.note.textContent='No reply from '+n+'.';drop(pe)}},30000)}catch(e){if(mp)mp.note.textContent='Could not reach the relay to invite '+n+'.';drop(pe)}}
 function send(o){const s=JSON.stringify(o);for(const pe of mp.peers)if(pe.p&&pe.dc.readyState==='open')pe.dc.send(s)}
 function lobby(){send({k:'lobby',p:mp.pl.map(p=>[p.id,p.name,p.col])});if(mp.refresh&&st==='room')mp.refresh()}
 function drop(pe){if(!mp||!mp.peers)return;const i=mp.peers.indexOf(pe);if(i<0)return;mp.peers.splice(i,1);try{pe.pc.close()}catch(e){}if(pe.p){mp.pl=mp.pl.filter(p=>p!==pe.p);lobby()}}
@@ -168,7 +176,7 @@ if(d.k==='name'&&!pe.p){if(mp.ph!==0||mp.pl.length>=8){pe.dc.close();return}pe.p
 else if(d.k==='in'&&pe.p){const i=pe.p.inp,n=d.dn|0;i.ix=cl(+d.ix||0,-1,1);i.iy=cl(+d.iy||0,-1,1);i.a=isFinite(d.a)?+d.a:0;i.f=d.f===true;if(n>pe.p.dn&&n<pe.p.dn+100){pe.p.dn=n;i.dreq=true}}}
 function spot(){let best={x:800,y:450},bd=-1;for(let i=0;i<14;i++){const x=60+R()*(AW-120),y=60+R()*(AH-120);let d=1e9;for(const q of mp.pl)if(q.al)d=Math.min(d,Math.hypot(q.x-x,q.y-y));if(d>bd){bd=d;best={x:x,y:y}}}return best}
 function respawn(p,quiet){const s=spot();Object.assign(p,{x:s.x,y:s.y,tx:s.x,ty:s.y,vx:0,vy:0,hull:3,al:true,inv:1.5,dash:0});if(!quiet)ev(['r',rd(s.x),rd(s.y)])}
-function hostStart(){const m=mp;if(m.pl.length<2)return;for(const p of m.pl){p.kills=p.deaths=0;p.al=false}for(const p of m.pl)respawn(p,1);m.bl=[];m.ev=[];m.msgs=[];m.ph=1;m.tl=3;send({k:'start'});enter()}
+function hostStart(){const m=mp;if(m.pl.length<2)return;relayStop();for(const p of m.pl){p.kills=p.deaths=0;p.al=false}for(const p of m.pl)respawn(p,1);m.bl=[];m.ev=[];m.msgs=[];m.ph=1;m.tl=3;send({k:'start'});enter()}
 function enter(){st='mp';M.style.display='none';U.style.display='none';C.style.cursor='none';PT=[];TX=[];shake=0;mp.cdL=0}
 function ev(e){mp.ev.push(e);applyEv(e)}
 function applyEv(e){const m=mp;if(!Array.isArray(e))return;const t=e[0],col=c=>COLS.includes(c)?c:'#fff';
@@ -195,17 +203,23 @@ m.bl=m.bl.filter(b=>b.l>0)}
 function snapshotSend(){const m=mp;send({k:'s',ph:m.ph,tl:+m.tl.toFixed(2),p:m.pl.map(p=>[p.id,rd(p.x),rd(p.y),+p.a.toFixed(2),p.hull,p.kills,p.deaths,(p.al?1:0)|(p.inv>0?2:0)|(p.dash>0?4:0)]),b:m.bl.map(b=>[rd(b.x),rd(b.y),rd(b.vx),rd(b.vy),b.o]),ev:m.ev});m.ev=[]}
 /* client side */
 function joinNew(){mp={host:false,id:null,pl:[],bl:[],ph:0,tl:0,msgs:[],lob:[],cdL:0,dn:0,acc:0};joinScreen()}
-function joinScreen(){st='room';M.style.display='none';const inp=mk('textarea',{rows:4,placeholder:"Paste the host's invite code here"}),out=mk('textarea',{readOnly:true,rows:4,placeholder:'Your reply code appears here'}),note=mk('div'),go=mk('button',{textContent:'Create reply code'});
-go.onclick=async()=>{const v=inp.value.trim();if(!v){note.textContent="Paste the host's invite code first.";return}let d;try{d=await dec(v)}catch(e){note.textContent=BAD;return}
-if(d.t==='a'){note.textContent="That is a reply code. Paste the host's invite code here.";return}
-go.disabled=true;note.textContent='Creating reply code…';const pc=new RTCPeerConnection(ICE);mp.pc=pc;
-pc.ondatachannel=x=>{const dc=x.channel;mp.dc=dc;dc.onopen=()=>dc.send(JSON.stringify({k:'name',n:myName}));dc.onmessage=cliMsg;dc.onclose=lost};
-pc.onconnectionstatechange=()=>{if(['failed','closed','disconnected'].includes(pc.connectionState))lost()};
-try{await pc.setRemoteDescription({type:'offer',sdp:d.s});await pc.setLocalDescription(await pc.createAnswer());await gathered(pc);out.value=await enc({t:'a',s:pc.localDescription.sdp});note.textContent='Copy this reply code to the host, then wait here.'}catch(e){note.textContent='Could not use that invite code.';go.disabled=false}};
-show(mk('h2',{textContent:'JOIN A ROOM'}),inp,go,out,copyBtn(out),note,mk('button',{textContent:'Back',onclick:()=>leave()}))}
+function joinScreen(){st='room';M.style.display='none';const inp=mk('input',{maxLength:7,placeholder:'6-digit room code',inputMode:'numeric'}),note=mk('div'),go=mk('button',{textContent:'Join'});
+go.onclick=()=>{const c=inp.value.replace(/\D/g,'');if(c.length!==6){note.textContent='Enter the 6-digit room code.';return}go.disabled=true;note.textContent='Contacting the host…';
+const T='neonswarm'+c,gid=Math.random().toString(36).slice(2,12);let got=false;const fin=m=>{note.textContent=m;go.disabled=false;relayStop()};
+relayStart(T,async d=>{if(d.to!==gid)return;if(d.t==='deny'){fin('The host declined your request.');return}
+ if(d.t==='offer'&&!got){got=true;let o;try{o=await dec(d.c);if(o.t!=='o')throw 0}catch(e){got=false;fin(BAD);return}
+  note.textContent='Connecting…';const pc=new RTCPeerConnection(ICE);mp.pc=pc;
+  pc.ondatachannel=x=>{const dc=x.channel;mp.dc=dc;dc.onopen=()=>dc.send(JSON.stringify({k:'name',n:myName}));dc.onmessage=cliMsg;dc.onclose=lost};
+  pc.onconnectionstatechange=()=>{if(['failed','closed','disconnected'].includes(pc.connectionState))lost()};
+  try{await pc.setRemoteDescription({type:'offer',sdp:o.s});await pc.setLocalDescription(await pc.createAnswer());await gathered(pc);await relayPub(T,{t:'answer',id:gid,c:await enc({t:'a',s:pc.localDescription.sdp})});
+   setTimeout(()=>{if(mp&&mp.id==null&&got){got=false;fin('The connection has not come up after 15 seconds.');try{pc.close()}catch(e){}}},15000)}catch(e){got=false;fin('Could not connect to that room.')}}},
+ ()=>fin('Cannot reach the relay service (ntfy.sh). Check your connection.'));
+relayPub(T,{t:'join',id:gid,n:myName}).catch(()=>fin('Cannot reach the relay service (ntfy.sh). Check your connection.'));
+setTimeout(()=>{if(mp&&!got&&mp.id==null&&rl&&go.disabled)fin('No answer from the host. Check the code and that the room is open.')},30000)};
+show(mk('h2',{textContent:'JOIN A ROOM'}),inp,go,note,mk('button',{textContent:'Back',onclick:()=>leave()}))}
 function joinView(){st='room';M.style.display='none';show(mk('h2',{textContent:'ROOM'}),plist(mp.lob),mk('div',{textContent:'Connected. Waiting for the host to start…'}),mk('button',{textContent:'Leave',onclick:()=>leave()}))}
 function cliMsg(e){let d;try{d=JSON.parse(e.data)}catch(x){return}if(!d||!mp||mp.host)return;
-if(d.k==='hello')mp.id=d.id|0;
+if(d.k==='hello'){mp.id=d.id|0;relayStop()}
 else if(d.k==='lobby'&&Array.isArray(d.p)){mp.lob=d.p.filter(Array.isArray).map(a=>({id:a[0],name:cn(a[1]),col:COLS.includes(a[2])?a[2]:COLS[0]}));mp.bl=[];mp.ph=0;joinView()}
 else if(d.k==='start'){mp.pl=[];enter()}
 else if(d.k==='s'&&Array.isArray(d.p)&&d.ph>0){const m=mp,ids=new Set();
